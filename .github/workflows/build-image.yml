@@ -1,45 +1,52 @@
-name: Build docker imagen
-# This workflow represents a set of basic End-to-End tests
+name: Build Docker Image
 on:
   push:
-  #   branches:
-  #     - '*'
-  pull_request:
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: gcr.io/kaniko-project/executor:v1.9.1-debug
+      image: gcr.io/kaniko-project/executor:v1.24.0-debug
     permissions:
       contents: read
       packages: write
-    timeout-minutes: 60
+    timeout-minutes: 15
     env:
       GIT_USERNAME: ${{ github.actor }}
       GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-      DOCKER_IMAGE_NAME:  ghcr.io/${{ github.repository }}
-      DOCKER_REGISTRY: ${{ 'https://ghcr.io' }}
       IMAGE_TAG: latest
-      DOCKERFILE: ${{ secrets.DOCKERFILE || './Dockerfile' }}
+      DOCKERFILE:  ${{  secrets.DOCKERFILE || './Dockerfile.dev' }}
+      IMAGE_NAME:  ghcr.io/${{ github.repository }}
+      IMAGE_REGISTRY_URL:  ${{ secrets.IMAGE_REGISTRY_URL || 'https://ghcr.io' }}
+      IMAGE_REGISTRY_USER: ${{ secrets.IMAGE_REGISTRY_USER || github.actor }}
+      IMAGE_REGISTRY_PASSWORD:  ${{ secrets.IMAGE_REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
     steps:
+      - name: Setup env var TAG image debug
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+        run: |
+          echo "IMAGE_TAG=$(echo ${GITHUB_SHA} | head  -c 7)" >> "$GITHUB_ENV"
+
+      - name: Setup env var TAG image production
+        if: startsWith(github.ref, 'refs/tags')
+        run: |
+          echo "IMAGE_TAG=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
       - name: Build and Push Image to registry with kaniko
         run: |
           mkdir -p /kaniko/.docker
           cat <<EOF > /kaniko/.docker/config.json
           {
             "auths": {
-              "${{ env.DOCKER_REGISTRY }}": {
-                "auth": "$(echo -n "${{ env.GIT_USERNAME }}:${{ env.GIT_PASSWORD }}" | base64 )"
+              "${{ env.IMAGE_REGISTRY_URL }}": {
+                "auth": "$(echo -n "${{ env.IMAGE_REGISTRY_USER }}:${{ env.IMAGE_REGISTRY_PASSWORD }}" | base64 )"
               }
             }
           }
           EOF
 
-          /kaniko/executor --dockerfile="env.DOCKERFILE" \
+          /kaniko/executor --dockerfile="${{ env.DOCKERFILE }}" \
             --context="${{ github.repositoryUrl }}#${{ github.ref }}#${{ github.sha }}"  \
-            --destination="$DOCKER_IMAGE_NAME:$IMAGE_TAG" \
+            --destination="$IMAGE_NAME:$IMAGE_TAG" \
             --push-retry 5\
             --verbosity=debug

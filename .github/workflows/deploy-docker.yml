@@ -1,0 +1,46 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: read
+
+jobs:
+  deploy_prod:
+    runs-on: ec2-bice
+    if: startsWith(github.ref, 'refs/tags')
+    timeout-minutes: 15
+    env: 
+      IMAGE_TAG: latest
+      EXPOSE_PORT: ${{ secrets.EXPOSE_PORT || 8080 }} 
+      PUBLISH_PORT: ${{ secrets.PUBLISH_PORT || 8081 }} 
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+      CONTAINER_NAME: ${{ secrets.CONTAINER_NAME ||  github.event.repository.name }}
+      IMAGE_REGISTRY_URL: ${{  secrets.IMAGE_REGISTRY_URL || 'https://ghcr.io' }}
+      IMAGE_REGISTRY_USER: ${{ secrets.IMAGE_REGISTRY_USER ||  github.actor }}
+      IMAGE_REGISTRY_PASSWORD: ${{ secrets.IMAGE_REGISTRY_PASSWORD ||  secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Setup env var TAG image production
+        run: |
+          echo "IMAGE_TAG=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
+      - name: Normalize container name
+        run: |  
+          SAFE_NAME="${CONTAINER_NAME//-/_}"
+          SAFE_NAME="$(echo "$SAFE_NAME" | tr 'A-Z' 'a-z')"
+          echo "CONTAINER_NAME=$SAFE_NAME" >> $GITHUB_ENV
+
+      - name: Deploy in Docker
+        run: |
+          echo $IMAGE_REGISTRY_PASSWORD | docker login $IMAGE_REGISTRY_URL -u $IMAGE_REGISTRY_USER --password-stdin
+          docker rm -f "$CONTAINER_NAME"
+          docker run -d --restart=unless-stopped --name "$CONTAINER_NAME" -p "$PUBLISH_PORT:$EXPOSE_PORT" "$IMAGE_NAME:$IMAGE_TAG"
+          if [ "$(docker inspect -f '{{.State.Running}}' $CONTAINER_NAME)" != "true" ]; then
+              echo "El contenedor $CONTAINER_NAME no inicio como se esperaba "
+              docker logs $CONTAINER_NAME || true
+              exit 1
+          fi
+          echo "El container $CONTAINER_NAME, inicio correctamente"
+          
