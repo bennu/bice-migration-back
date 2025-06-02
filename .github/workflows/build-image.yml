@@ -1,0 +1,45 @@
+name: Build docker imagen
+# This workflow represents a set of basic End-to-End tests
+on:
+  push:
+  #   branches:
+  #     - '*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: gcr.io/kaniko-project/executor:v1.9.1-debug
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    env:
+      GIT_USERNAME: ${{ github.actor }}
+      GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      DOCKER_IMAGE_NAME:  ghcr.io/${{ github.repository }}
+      DOCKER_REGISTRY: ${{ 'https://ghcr.io' }}
+      IMAGE_TAG: latest
+      DOCKERFILE: ${{ secrets.DOCKERFILE || './Dockerfile' }}
+
+    steps:
+      - name: Build and Push Image to registry with kaniko
+        run: |
+          mkdir -p /kaniko/.docker
+          cat <<EOF > /kaniko/.docker/config.json
+          {
+            "auths": {
+              "${{ env.DOCKER_REGISTRY }}": {
+                "auth": "$(echo -n "${{ env.GIT_USERNAME }}:${{ env.GIT_PASSWORD }}" | base64 )"
+              }
+            }
+          }
+          EOF
+
+          /kaniko/executor --dockerfile="env.DOCKERFILE" \
+            --context="${{ github.repositoryUrl }}#${{ github.ref }}#${{ github.sha }}"  \
+            --destination="$DOCKER_IMAGE_NAME:$IMAGE_TAG" \
+            --push-retry 5\
+            --verbosity=debug
