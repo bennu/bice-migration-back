@@ -1,5 +1,4 @@
 name: Deploy to Production
-
 on:
   workflow_dispatch:
 
@@ -43,4 +42,3 @@ jobs:
               exit 1
           fi
           echo "El container $CONTAINER_NAME, inicio correctamente"
-          
